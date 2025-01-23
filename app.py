@@ -1,13 +1,12 @@
 import streamlit as st
-import speech_recognition as sr
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, AudioProcessorBase
 from gtts import gTTS
 import tempfile
 from googletrans import Translator
 import logging
 import os
 from cryptography.fernet import Fernet
-import sounddevice as sd
-import wavio
+import av
 
 # Configure Logging
 logging.basicConfig(
@@ -37,32 +36,28 @@ LANGUAGE_MAPPING = {
     "tr - Turkish": "tr"
 }
 
+# Audio Processor for WebRTC
+class AudioProcessor(AudioProcessorBase):
+    def __init__(self, lang_code):
+        self.lang_code = lang_code
+        self.recognizer = sr.Recognizer()
+        self.transcribed_text = ""
+
+    def recv_audio(self, frame: av.AudioFrame) -> av.AudioFrame:
+        audio_data = frame.to_ndarray()
+        try:
+            with sr.AudioFile(audio_data) as source:
+                self.recognizer.adjust_for_ambient_noise(source)
+                audio = self.recognizer.record(source)
+                self.transcribed_text = self.recognizer.recognize_google(audio, language=self.lang_code)
+        except Exception as e:
+            self.transcribed_text = f"Error: {e}"
+        return frame
+
+    def get_transcribed_text(self):
+        return self.transcribed_text
+
 # Functions
-def initialize_recognizer():
-    """Initialize the speech recognizer."""
-    return sr.Recognizer()
-
-def record_audio(recognizer, duration=5, sample_rate=44100):
-    """Record audio using sounddevice."""
-    st.info("Please speak now...")
-    audio_data = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=1, dtype="int16")
-    sd.wait()
-    temp_audio_path = tempfile.NamedTemporaryFile(delete=False, suffix=".wav").name
-    wavio.write(temp_audio_path, audio_data, sample_rate, sampwidth=2)
-    with sr.AudioFile(temp_audio_path) as source:
-        audio = recognizer.record(source)
-    os.remove(temp_audio_path)  # Clean up the temporary audio file
-    return audio
-
-def speech_to_text(audio, recognizer, input_lang_code):
-    """Convert speech to text using Google Speech Recognition."""
-    try:
-        return recognizer.recognize_google(audio, language=input_lang_code)
-    except sr.UnknownValueError:
-        raise ValueError("Sorry, the audio was not clear enough to recognize.")
-    except sr.RequestError as e:
-        raise ConnectionError(f"Could not request results from Google Speech Recognition: {e}")
-
 def translate_text(text, input_lang_code, output_lang_code):
     """Translate text using Google Translate."""
     translator = Translator()
@@ -101,56 +96,56 @@ def render_ui():
     st.sidebar.title("Settings")
     input_lang = st.sidebar.selectbox(
         "Input Language",
-        ["en - English", "es - Spanish", "fr - French", "de - German", "zh - Chinese", "ar - Arabic", "hi - Hindi", "it - Italian", "pt - Portuguese", "ru - Russian", "ja - Japanese", "ko - Korean", "tr - Turkish"]
+        list(LANGUAGE_MAPPING.keys())
     )
     output_lang = st.sidebar.selectbox(
         "Output Language",
-        ["en - English", "es - Spanish", "fr - French", "de - German", "zh - Chinese", "ar - Arabic", "hi - Hindi", "it - Italian", "pt - Portuguese", "ru - Russian", "ja - Japanese", "ko - Korean", "tr - Turkish"]
+        list(LANGUAGE_MAPPING.keys())
     )
 
     return input_lang, output_lang
 
 # Main Functionality
 def main():
-    recognizer = initialize_recognizer()
     input_lang, output_lang = render_ui()
 
     input_lang_code = LANGUAGE_MAPPING[input_lang]
     output_lang_code = LANGUAGE_MAPPING[output_lang]
 
-    if st.button("Start Speaking"):
-        try:
-            # Record audio and convert to text
-            audio = record_audio(recognizer)
-            st.write("Recognizing speech...")
-            original_text = speech_to_text(audio, recognizer, input_lang_code)
-            st.write(f"Original Text: {original_text}")
+    st.write("Speak into your microphone for live transcription and translation.")
+    webrtc_ctx = webrtc_streamer(
+        key="speech-to-text",
+        mode=WebRtcMode.SENDRECV,
+        audio_processor_factory=lambda: AudioProcessor(input_lang_code),
+        media_stream_constraints={"audio": True, "video": False},
+        async_processing=True,
+    )
 
-            # Translate and convert to speech
-            st.write("Translating...")
-            translated_text = translate_text(original_text, input_lang_code, output_lang_code)
-            st.write(f"Translated Text: {translated_text}")
+    if webrtc_ctx.audio_processor:
+        transcribed_text = webrtc_ctx.audio_processor.get_transcribed_text()
+        if transcribed_text:
+            st.write(f"Recognized Speech: {transcribed_text}")
+            try:
+                # Translate and convert to speech
+                st.write("Translating...")
+                translated_text = translate_text(transcribed_text, input_lang_code, output_lang_code)
+                st.write(f"Translated Text: {translated_text}")
 
-            st.write("Generating audio...")
-            audio_path = text_to_speech_secure(translated_text, output_lang_code)
-            decrypted_audio = decrypt_audio(audio_path)
+                st.write("Generating audio...")
+                audio_path = text_to_speech_secure(translated_text, output_lang_code)
+                decrypted_audio = decrypt_audio(audio_path)
 
-            # Play decrypted audio
-            st.audio(decrypted_audio, format="audio/mp3")
+                # Play decrypted audio
+                st.audio(decrypted_audio, format="audio/mp3")
 
-            # Clean up the encrypted file after usage
-            os.remove(audio_path)
+                # Clean up the encrypted file after usage
+                os.remove(audio_path)
 
-        except ValueError as ve:
-            st.error(str(ve))
-            log_error(str(ve))
-        except ConnectionError as ce:
-            st.error(str(ce))
-            log_error(str(ce))
-        except Exception as e:
-            st.error(f"An unexpected error occurred: {e}")
-            log_error(f"Unexpected error: {e}")
+            except Exception as e:
+                st.error(f"An error occurred: {e}")
+                log_error(str(e))
 
 # Run the app
 if __name__ == "__main__":
     main()
+
