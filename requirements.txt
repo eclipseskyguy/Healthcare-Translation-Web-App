@@ -1,8 +1,10 @@
 streamlit==1.25.0
+Pillow
 speechrecognition==3.8.1
 googletrans==4.0.0rc1
 gTTS==2.3.2
 cryptography==41.0.3
 sounddevice==0.4.6
 wavio==0.0.7
+
 
