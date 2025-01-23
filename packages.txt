@@ -8,3 +8,4 @@ libswscale-dev
 libswresample-dev
 pkg-config
 
+
