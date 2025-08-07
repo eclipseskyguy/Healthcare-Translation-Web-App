@@ -28,43 +28,23 @@
 <body>
     <div class="container">
         <h1>Healthcare Translation</h1>
-
         <div class="form-group">
             <label for="inputLang">Your Language (Input)</label>
-            <select id="inputLang">
-                <option value="en">English</option>
-                <option value="es">Spanish</option>
-                <option value="fr">French</option>
-                <option value="de">German</option>
-                <option value="hi">Hindi</option>
-                <option value="ta">Tamil</option>
-                </select>
+            <select id="inputLang"><option value="en">English</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="hi">Hindi</option><option value="ta">Tamil</option></select>
         </div>
-
         <div class="form-group">
             <label for="outputLang">Patient's Language (Output)</label>
-            <select id="outputLang">
-                <option value="ta">Tamil</option>
-                <option value="es">Spanish</option>
-                <option value="fr">French</option>
-                <option value="de">German</option>
-                <option value="hi">Hindi</option>
-                <option value="en">English</option>
-                </select>
+            <select id="outputLang"><option value="ta">Tamil</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="hi">Hindi</option><option value="en">English</option></select>
         </div>
-        
         <div class="form-group">
             <label for="inputText">Text to Translate</label>
             <textarea id="inputText" placeholder="Enter text or use the microphone..."></textarea>
         </div>
-
         <div class="buttons">
             <button id="speakBtn">Start Speaking</button>
-            <button id="translateBtn">Translate</button>
+            <button id="translateBtn">Translate & Speak</button>
         </div>
-
-        <div class="loader" id="loader">Translating...</div>
-
+        <div class="loader" id="loader">Processing...</div>
         <div class="result" id="resultBox" style="display: none;">
             <h2>Translated Text</h2>
             <p id="translatedText"></p>
@@ -83,91 +63,82 @@
         const audioPlayer = document.getElementById('audioPlayer');
         const loader = document.getElementById('loader');
 
-        // Feature 1: Speech-to-Text
-// --- THIS IS THE FINAL, PERFECTED CODE ---
-// Feature 1: Speech-to-Text with explicit Start/Stop
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (SpeechRecognition) {
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-
-    speakBtn.addEventListener('click', () => {
-        if (speakBtn.classList.contains('listening')) {
-            recognition.stop();
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            speakBtn.addEventListener('click', () => {
+                if (speakBtn.classList.contains('listening')) {
+                    recognition.stop();
+                } else {
+                    inputText.value = '';
+                    recognition.lang = inputLang.value;
+                    recognition.start();
+                }
+            });
+            recognition.onstart = () => { speakBtn.textContent = 'Stop Recording'; speakBtn.classList.add('listening'); };
+            recognition.onend = () => { speakBtn.textContent = 'Start Speaking'; speakBtn.classList.remove('listening'); };
+            recognition.onresult = (event) => {
+                const transcript = Array.from(event.results).map(result => result[0]).map(result => result.transcript).join('');
+                inputText.value = transcript;
+            };
+            recognition.onerror = (event) => { console.error("Speech recognition error:", event.error); alert(`An error occurred: ${event.error}`); };
         } else {
-            inputText.value = ''; // Clear the text box on new start
-            recognition.lang = inputLang.value;
-            recognition.start();
+            speakBtn.textContent = 'Mic Not Supported';
+            speakBtn.disabled = true;
         }
-    });
 
-    recognition.onstart = () => {
-        speakBtn.textContent = 'Stop Recording';
-        speakBtn.classList.add('listening');
-    };
-
-    recognition.onend = () => {
-        speakBtn.textContent = 'Start Speaking';
-        speakBtn.classList.remove('listening');
-    };
-
-    // This is the improved part that fixes the bug
-    recognition.onresult = (event) => {
-        const transcript = Array.from(event.results)
-            .map(result => result[0])
-            .map(result => result.transcript)
-            .join('');
-        inputText.value = transcript;
-    };
-
-    recognition.onerror = (event) => {
-        console.error("Speech recognition error:", event.error);
-        alert(`An error occurred: ${event.error}`);
-    };
-
-} else {
-    speakBtn.textContent = 'Mic Not Supported';
-    speakBtn.disabled = true;
-}
-// --- END OF FINAL CODE ---
-
-        // Feature 2 & 3: Translation and Text-to-Speech via API
         translateBtn.addEventListener('click', async () => {
             const textToTranslate = inputText.value;
             if (!textToTranslate) {
                 alert('Please enter text or use the microphone first.');
                 return;
             }
-
             loader.style.display = 'block';
             resultBox.style.display = 'none';
             translateBtn.disabled = true;
 
-            const formData = new FormData();
-            formData.append('text', textToTranslate);
-            formData.append('input_lang_code', inputLang.value);
-            formData.append('output_lang_code', outputLang.value);
-
             try {
-                const response = await fetch('/translate/', {
+                // --- NEW TWO-STEP LOGIC ---
+                // Step 1: Get the translation
+                const translateFormData = new FormData();
+                translateFormData.append('text', textToTranslate);
+                translateFormData.append('input_lang_code', inputLang.value);
+                translateFormData.append('output_lang_code', outputLang.value);
+
+                const translateResponse = await fetch('/translate/', {
                     method: 'POST',
-                    body: formData
+                    body: translateFormData
                 });
+                if (!translateResponse.ok) throw new Error('Translation failed');
+                const translateData = await translateResponse.json();
 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
-                const data = await response.json();
-
-                translatedText.textContent = data.translated_text;
-                audioPlayer.src = `/audio/${data.audio_filename}`;
+                // Update the UI with the translated text
+                translatedText.textContent = translateData.translated_text;
                 resultBox.style.display = 'block';
-                
+
+                // Step 2: Get the audio for the translated text
+                const ttsResponse = await fetch('/text-to-speech/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text: translateData.translated_text,
+                        lang_code: translateData.output_lang_code
+                    })
+                });
+                if (!ttsResponse.ok) throw new Error('Text-to-Speech generation failed');
+
+                // Get the audio data as a "blob"
+                const audioBlob = await ttsResponse.blob();
+                // Create a local URL for the blob
+                const audioUrl = URL.createObjectURL(audioBlob);
+                audioPlayer.src = audioUrl;
+                audioPlayer.play(); // Automatically play the audio
+
             } catch (error) {
-                console.error('Translation error:', error);
-                alert('An error occurred during translation. Please check the console.');
+                console.error('Processing error:', error);
+                alert('An error occurred. Please check the console.');
             } finally {
                 loader.style.display = 'none';
                 translateBtn.disabled = false;
