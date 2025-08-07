@@ -84,39 +84,58 @@
         const loader = document.getElementById('loader');
 
         // Feature 1: Speech-to-Text
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (SpeechRecognition) {
-            const recognition = new SpeechRecognition();
-            recognition.continuous = false;
-            recognition.interimResults = false;
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (SpeechRecognition) {
+    const recognition = new SpeechRecognition();
+    
+    // Key Changes for full control:
+    recognition.continuous = true;  // Keeps listening through pauses.
+    recognition.interimResults = true; // Shows results as you speak.
 
-            speakBtn.addEventListener('click', () => {
-                recognition.lang = inputLang.value;
-                if (speakBtn.classList.contains('listening')) {
-                    recognition.stop();
-                } else {
-                    recognition.start();
-                }
-            });
+    let final_transcript = '';
 
-            recognition.onstart = () => {
-                speakBtn.textContent = 'Stop Speaking';
-                speakBtn.classList.add('listening');
-            };
-
-            recognition.onend = () => {
-                speakBtn.textContent = 'Start Speaking';
-                speakBtn.classList.remove('listening');
-            };
-
-            recognition.onresult = (event) => {
-                const transcript = event.results[0][0].transcript;
-                inputText.value = transcript;
-            };
+    speakBtn.addEventListener('click', () => {
+        recognition.lang = inputLang.value;
+        if (speakBtn.classList.contains('listening')) {
+            recognition.stop();
         } else {
-            speakBtn.textContent = 'Mic Not Supported';
-            speakBtn.disabled = true;
+            final_transcript = ''; // Reset transcript on new start
+            inputText.value = '';
+            recognition.start();
         }
+    });
+
+    recognition.onstart = () => {
+        speakBtn.textContent = 'Stop Recording';
+        speakBtn.classList.add('listening');
+    };
+
+    recognition.onend = () => {
+        speakBtn.textContent = 'Start Speaking';
+        speakBtn.classList.remove('listening');
+    };
+    
+    // This new onresult handler builds the transcript as you speak
+    recognition.onresult = (event) => {
+        let interim_transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+                final_transcript += event.results[i][0].transcript;
+            } else {
+                interim_transcript += event.results[i][0].transcript;
+            }
+        }
+        inputText.value = final_transcript + interim_transcript;
+    };
+
+    recognition.onerror = (event) => {
+        console.error("Speech recognition error:", event.error);
+    };
+
+} else {
+    speakBtn.textContent = 'Mic Not Supported';
+    speakBtn.disabled = true;
+}
 
         // Feature 2 & 3: Translation and Text-to-Speech via API
         translateBtn.addEventListener('click', async () => {
