@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from gtts import gTTS
 from googletrans import Translator
 from cryptography.fernet import Fernet
+import logging
 import os
 import uuid
 
